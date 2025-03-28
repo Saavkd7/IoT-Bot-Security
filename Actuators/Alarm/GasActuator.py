@@ -11,7 +11,7 @@ STATE_TOPIC = "building/zone3/alarm/state"
 current_state = "deactivated"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y")
+    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
 def on_message(client, userdata, msg):
     global current_state

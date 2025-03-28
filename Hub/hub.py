@@ -12,7 +12,7 @@ DB_USER = "postgres"
 DB_PASSWORD = "postgres"
 DB_NAME = "iot_logs"
 
-# Topic mappings for sensors and actuator state messages
+# Topic mappings: sensors and actuator state topics
 SENSOR_TOPICS = {
     "building/zone2/temperature/room1": "building/zone2/ac/control",
     "building/zone1/motion/entrance": "building/zone1/door/lock",
@@ -30,7 +30,7 @@ TEMP_THRESHOLD = 0.5  # °C
 GAS_THRESHOLD = 10    # PPM
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y")
+    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
 def log_to_database(device_id, event, payload):
     try:
@@ -38,7 +38,6 @@ def log_to_database(device_id, event, payload):
             host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, dbname=DB_NAME
         )
         cursor = conn.cursor()
-        # Add hub's timestamp before logging
         payload['hub_timestamp'] = get_formatted_timestamp()
         cursor.execute(
             "INSERT INTO network_logs (device_id, event, payload, timestamp) VALUES (%s, %s, %s, %s)",

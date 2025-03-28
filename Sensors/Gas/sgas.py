@@ -10,7 +10,7 @@ BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt-broker")
 TOPIC = "building/zone3/gas/detection"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y")
+    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
 def generate_gas_level():
     normal_gas_level = faker.pyfloat(left_digits=2, right_digits=2, min_value=30, max_value=70)

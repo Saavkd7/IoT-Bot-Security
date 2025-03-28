@@ -11,7 +11,7 @@ STATE_TOPIC = "building/zone1/door/state"
 current_state = "locked"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y")
+    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
 def on_message(client, userdata, msg):
     global current_state

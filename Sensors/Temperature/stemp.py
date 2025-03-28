@@ -1,21 +1,16 @@
 import os
 import json
 import time
+import math
 import paho.mqtt.client as mqtt
-from faker import Faker
 from datetime import datetime
 
-faker = Faker()
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-CONTROL_TOPIC = "building/zone2/ac/control"
-STATE_TOPIC = "building/zone2/ac/state"
 SENSOR_TOPIC = "building/zone2/temperature/room1"
 
-current_temp = 22.0  # Default indoor temperature
-target_temp = {"winter": 22.0, "spring": 21.0, "summer": 23.0, "autumn": 21.0}
-
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y")
+    # Returns date and time in dd/mm/yy HH:MM:SS format
+    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
 
 def get_season():
     month = datetime.now().month
@@ -28,43 +23,33 @@ def get_season():
     else:
         return "autumn"
 
-def on_message(client, userdata, message):
-    global current_temp
+def simulate_temperature(current_time):
+    # Base indoor temperature
+    base_temp = 22.0
+    # Diurnal variation: 24-hour cycle with amplitude 2°C
+    amplitude = 2.0
+    diurnal_variation = amplitude * math.sin(2 * math.pi * (current_time % 86400) / 86400)
+    # Seasonal offset: cooler in winter, warmer in summer
     season = get_season()
-    payload = json.loads(message.payload.decode())
-
-    if "value" in payload:
-        received_temp = payload["value"]
-        print(f"[HVAC] 🌡️ Received Temperature: {received_temp}°C in {season}")
-        ideal_temp = target_temp[season]
-
-        if received_temp > ideal_temp + 2:
-            adjustment = round(faker.pyfloat(min_value=-1.5, max_value=-0.5), 2)
-            current_temp += adjustment
-            action = f"cooling: {abs(adjustment)}°C"
-        elif received_temp < ideal_temp - 2:
-            adjustment = round(faker.pyfloat(min_value=0.5, max_value=1.5), 2)
-            current_temp += adjustment
-            action = f"heating: {adjustment}°C"
-        else:
-            action = "stable"
-
-        client.publish(STATE_TOPIC, json.dumps({
-            "action": action,
-            "current_temp": current_temp,
-            "season": season,
-            "timestamp": get_formatted_timestamp()
-        }))
-        print(f"[HVAC] 🔄 Adjusting: {action} | Room Temp: {current_temp}°C | Target: {ideal_temp}°C ({season})")
+    seasonal_offset = -1.0 if season == "winter" else (1.0 if season == "summer" else 0)
+    return round(base_temp + diurnal_variation + seasonal_offset, 2)
 
 def main():
     client = mqtt.Client()
     client.connect(BROKER_ADDRESS)
-    client.subscribe(SENSOR_TOPIC)
-    client.on_message = on_message
+    print("[Temperature Sensor] 🌡️ I am ONLINE and publishing temperature data...")
 
-    print(f"[HVAC] Listening for temperature readings on {SENSOR_TOPIC}...")
-    client.loop_forever()
+    while True:
+        now = time.time()
+        temp = simulate_temperature(now)
+        payload = {
+            "sensor": "temperature",
+            "value": temp,
+            "timestamp": get_formatted_timestamp()
+        }
+        client.publish(SENSOR_TOPIC, json.dumps(payload))
+        print(f"[Temperature Sensor] Published: {payload}")
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
