@@ -3,13 +3,16 @@ import time
 import json
 import paho.mqtt.client as mqtt
 from faker import Faker
+from datetime import datetime
 
 faker = Faker()
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt-broker")
 TOPIC = "building/zone1/motion/entrance"
 
+def get_formatted_timestamp():
+    return datetime.now().strftime("%d/%m/%y")
+
 def generate_motion():
-    """Simulate human movement with probability-based events."""
     return "motion_detected" if faker.boolean(chance_of_getting_true=30) else "no_motion"
 
 def main():
@@ -19,11 +22,11 @@ def main():
 
     while True:
         motion_value = generate_motion()
-        data = {"sensor": "motion", "value": motion_value, "timestamp": time.time()}
+        data = {"sensor": "motion", "value": motion_value, "timestamp": get_formatted_timestamp()}
         client.publish(TOPIC, json.dumps(data))
         print(f"[Motion Sensor] Published: {data}")
-
         time.sleep(3)
 
 if __name__ == "__main__":
     main()
+

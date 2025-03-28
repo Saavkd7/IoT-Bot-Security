@@ -1,5 +1,7 @@
-import os, json, time
+import os
+import json
 import paho.mqtt.client as mqtt
+from datetime import datetime
 
 BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 DEVICE_ID = "gas_alarm_01"
@@ -7,6 +9,9 @@ CONTROL_TOPIC = "building/zone3/alarm/control"
 STATE_TOPIC = "building/zone3/alarm/state"
 
 current_state = "deactivated"
+
+def get_formatted_timestamp():
+    return datetime.now().strftime("%d/%m/%y")
 
 def on_message(client, userdata, msg):
     global current_state
@@ -24,7 +29,7 @@ def on_message(client, userdata, msg):
             client.publish(STATE_TOPIC, json.dumps({
                 "state": current_state,
                 "device_id": DEVICE_ID,
-                "timestamp": time.time()
+                "timestamp": get_formatted_timestamp()
             }))
     except Exception as e:
         print(f"[Gas Alarm] ❌ Error processing message: {e}")
@@ -38,7 +43,7 @@ def main():
     client.publish(STATE_TOPIC, json.dumps({
         "state": current_state,
         "device_id": DEVICE_ID,
-        "timestamp": time.time()
+        "timestamp": get_formatted_timestamp()
     }))
     client.loop_forever()
 

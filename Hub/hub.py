@@ -1,51 +1,48 @@
 import os
 import json
-import time
 import paho.mqtt.client as mqtt
 import psycopg2
+from datetime import datetime
 
-# MQTT Broker Address
+# Environment settings
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-
-# Database Configuration
 DB_HOST = os.getenv("DB_HOST", "postgres_db")
 DB_PORT = "5432"
 DB_USER = "postgres"
 DB_PASSWORD = "postgres"
 DB_NAME = "iot_logs"
 
-# Sensor-to-Actuator Mapping
+# Topic mappings for sensors and actuator state messages
 SENSOR_TOPICS = {
     "building/zone2/temperature/room1": "building/zone2/ac/control",
     "building/zone1/motion/entrance": "building/zone1/door/lock",
     "building/zone3/gas/detection": "building/zone3/alarm/control"
 }
 
-# Mapping for Actuator State Messages
 ACTUATOR_STATE_TOPICS = {
     "building/zone2/ac/state": "HVAC",
     "building/zone1/door/state": "Door Lock",
     "building/zone3/alarm/state": "Gas Alarm"
 }
 
-# Sensor State Storage
 sensor_states = {}
+TEMP_THRESHOLD = 0.5  # °C
+GAS_THRESHOLD = 10    # PPM
 
-# Threshold Values for Significant Changes
-TEMP_THRESHOLD = 0.5  # Temperature difference must be >= 0.5°C
-GAS_THRESHOLD = 10    # Gas level difference must be >= 10 PPM
+def get_formatted_timestamp():
+    return datetime.now().strftime("%d/%m/%y")
 
-# Database Logging Function
 def log_to_database(device_id, event, payload):
-    """Log sensor and actuator events to the database."""
     try:
         conn = psycopg2.connect(
             host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, dbname=DB_NAME
         )
         cursor = conn.cursor()
+        # Add hub's timestamp before logging
+        payload['hub_timestamp'] = get_formatted_timestamp()
         cursor.execute(
             "INSERT INTO network_logs (device_id, event, payload, timestamp) VALUES (%s, %s, %s, %s)",
-            (device_id, event, json.dumps(payload), time.time()),
+            (device_id, event, json.dumps(payload), get_formatted_timestamp())
         )
         conn.commit()
         cursor.close()
@@ -55,81 +52,79 @@ def log_to_database(device_id, event, payload):
     except Exception as e:
         print(f"[Central Hub] ❌ Database logging error: {e}")
 
-# MQTT Message Processing
 def on_message(client, userdata, msg):
-    """Process sensor data and trigger actuator commands based on incoming messages."""
     print(f"📥 Received message: {msg.payload.decode()} on topic: {msg.topic}")
-
     try:
         data = json.loads(msg.payload.decode())
         sensor_id = data.get("sensor", "unknown")
 
-        # Process Motion Sensor Messages
+        # Process Motion Sensor messages
         if msg.topic == "building/zone1/motion/entrance":
             if "value" in data:
                 motion_state = data["value"]
                 if msg.topic not in sensor_states or sensor_states[msg.topic] != motion_state:
                     sensor_states[msg.topic] = motion_state
-                    # Determine door action based on motion state
                     action = "unlock" if motion_state == "motion_detected" else "lock"
-                    client.publish("building/zone1/door/lock", json.dumps({"action": action}))
+                    client.publish("building/zone1/door/lock", json.dumps({
+                        "action": action,
+                        "timestamp": get_formatted_timestamp()
+                    }))
                     print(f"📢 Motion: {motion_state} | Command sent: {action}")
             else:
                 print("⚠️ Warning: 'value' key missing in motion message")
 
-        # Process Gas Sensor Messages
+        # Process Gas Sensor messages
         elif msg.topic == "building/zone3/gas/detection":
             if "value" in data:
                 gas_level = data["value"]
-                # Only forward if significant change occurs
                 if msg.topic not in sensor_states or abs(sensor_states[msg.topic] - gas_level) >= GAS_THRESHOLD:
                     sensor_states[msg.topic] = gas_level
                     action = "activate" if gas_level > 300 else "deactivate"
-                    client.publish("building/zone3/alarm/control", json.dumps({"action": action}))
+                    client.publish("building/zone3/alarm/control", json.dumps({
+                        "action": action,
+                        "timestamp": get_formatted_timestamp()
+                    }))
                     print(f"📢 Gas Level: {gas_level} PPM | Command sent: {action}")
             else:
                 print("⚠️ Warning: 'value' key missing in gas detection message")
 
-        # Process Temperature Sensor Messages
+        # Process Temperature Sensor messages
         elif msg.topic == "building/zone2/temperature/room1":
             if "value" in data:
                 temp = data["value"]
-                # Check if change is significant before forwarding
                 if msg.topic not in sensor_states or abs(sensor_states[msg.topic] - temp) >= TEMP_THRESHOLD:
                     sensor_states[msg.topic] = temp
-                    # Forward the raw temperature reading to HVAC actuator
                     payload = {
                         "sensor": "temperature",
                         "value": temp,
-                        "timestamp": time.time()
+                        "timestamp": get_formatted_timestamp()
                     }
                     client.publish("building/zone2/ac/control", json.dumps(payload))
                     print(f"📢 Temperature reading: {temp}°C → forwarded to HVAC for adjustment.")
             else:
                 print("⚠️ Warning: 'value' key missing in temperature message")
 
-        # Process Actuator State Messages
+        # Process Actuator state messages
         elif msg.topic in ACTUATOR_STATE_TOPICS:
             actuator_name = ACTUATOR_STATE_TOPICS[msg.topic]
             if "state" in data:
                 print(f"✅ {actuator_name} confirmed state: {data['state']}")
+                log_to_database(actuator_name, "actuator_data", data)
             else:
                 print(f"⚠️ Warning: 'state' key missing in actuator state message")
 
-        # Log event to database if sensor info is present
+        # Log sensor events if applicable
         if "sensor" in data:
             log_to_database(sensor_id, "sensor_data", data)
 
     except json.JSONDecodeError:
         print("❌ Invalid JSON format received.")
 
-# MQTT Client Setup
 def main():
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)  # Using newer Callback API
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_message = on_message
     client.connect(BROKER_ADDRESS)
 
-    # Subscribe to sensor topics and actuator state topics
     for topic in SENSOR_TOPICS.keys():
         client.subscribe(topic)
     for topic in ACTUATOR_STATE_TOPICS.keys():
