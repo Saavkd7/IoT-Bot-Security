@@ -9,8 +9,8 @@ BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 SENSOR_TOPIC = "building/zone2/temperature/room1"
 
 def get_formatted_timestamp():
-    # Returns date and time in dd/mm/yy HH:MM:SS format
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    # Returns timestamp as: day/AbbrMonth/yy HH:MM:SS (e.g., "31/Mar/23 15:45:02")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def get_season():
     month = datetime.now().month
@@ -24,12 +24,9 @@ def get_season():
         return "autumn"
 
 def simulate_temperature(current_time):
-    # Base indoor temperature
     base_temp = 22.0
-    # Diurnal variation: 24-hour cycle with amplitude 2°C
     amplitude = 2.0
     diurnal_variation = amplitude * math.sin(2 * math.pi * (current_time % 86400) / 86400)
-    # Seasonal offset: cooler in winter, warmer in summer
     season = get_season()
     seasonal_offset = -1.0 if season == "winter" else (1.0 if season == "summer" else 0)
     return round(base_temp + diurnal_variation + seasonal_offset, 2)

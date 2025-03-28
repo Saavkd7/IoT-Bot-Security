@@ -4,7 +4,6 @@ import paho.mqtt.client as mqtt
 import psycopg2
 from datetime import datetime
 
-# Environment settings
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 DB_HOST = os.getenv("DB_HOST", "postgres_db")
 DB_PORT = "5432"
@@ -12,7 +11,6 @@ DB_USER = "postgres"
 DB_PASSWORD = "postgres"
 DB_NAME = "iot_logs"
 
-# Topic mappings: sensors and actuator state topics
 SENSOR_TOPICS = {
     "building/zone2/temperature/room1": "building/zone2/ac/control",
     "building/zone1/motion/entrance": "building/zone1/door/lock",
@@ -26,11 +24,11 @@ ACTUATOR_STATE_TOPICS = {
 }
 
 sensor_states = {}
-TEMP_THRESHOLD = 0.5  # °C
-GAS_THRESHOLD = 10    # PPM
+TEMP_THRESHOLD = 0.5
+GAS_THRESHOLD = 10
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def log_to_database(device_id, event, payload):
     try:
@@ -57,7 +55,6 @@ def on_message(client, userdata, msg):
         data = json.loads(msg.payload.decode())
         sensor_id = data.get("sensor", "unknown")
 
-        # Process Motion Sensor messages
         if msg.topic == "building/zone1/motion/entrance":
             if "value" in data:
                 motion_state = data["value"]
@@ -72,7 +69,6 @@ def on_message(client, userdata, msg):
             else:
                 print("⚠️ Warning: 'value' key missing in motion message")
 
-        # Process Gas Sensor messages
         elif msg.topic == "building/zone3/gas/detection":
             if "value" in data:
                 gas_level = data["value"]
@@ -87,7 +83,6 @@ def on_message(client, userdata, msg):
             else:
                 print("⚠️ Warning: 'value' key missing in gas detection message")
 
-        # Process Temperature Sensor messages
         elif msg.topic == "building/zone2/temperature/room1":
             if "value" in data:
                 temp = data["value"]
@@ -103,7 +98,6 @@ def on_message(client, userdata, msg):
             else:
                 print("⚠️ Warning: 'value' key missing in temperature message")
 
-        # Process Actuator state messages
         elif msg.topic in ACTUATOR_STATE_TOPICS:
             actuator_name = ACTUATOR_STATE_TOPICS[msg.topic]
             if "state" in data:
@@ -112,7 +106,6 @@ def on_message(client, userdata, msg):
             else:
                 print(f"⚠️ Warning: 'state' key missing in actuator state message")
 
-        # Log sensor events if applicable
         if "sensor" in data:
             log_to_database(sensor_id, "sensor_data", data)
 

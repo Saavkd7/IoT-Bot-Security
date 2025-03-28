@@ -10,7 +10,7 @@ BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt-broker")
 TOPIC = "building/zone1/motion/entrance"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def generate_motion():
     return "motion_detected" if faker.boolean(chance_of_getting_true=30) else "no_motion"

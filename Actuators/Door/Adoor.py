@@ -11,18 +11,16 @@ STATE_TOPIC = "building/zone1/door/state"
 current_state = "locked"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def on_message(client, userdata, msg):
     global current_state
     try:
         payload = json.loads(msg.payload.decode())
         command = payload.get("action")
-
         if command not in ["lock", "unlock"]:
             print(f"[Door] ⚠️ Invalid command: {command}")
             return
-
         if command != current_state:
             current_state = command
             print(f"[Door] 🚪 State changed to: {current_state}")

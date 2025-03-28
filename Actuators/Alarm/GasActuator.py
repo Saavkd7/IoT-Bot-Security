@@ -11,18 +11,16 @@ STATE_TOPIC = "building/zone3/alarm/state"
 current_state = "deactivated"
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def on_message(client, userdata, msg):
     global current_state
     try:
         payload = json.loads(msg.payload.decode())
         command = payload.get("action")
-
         if command not in ["activate", "deactivate"]:
             print(f"[Gas Alarm] ⚠️ Invalid command: {command}")
             return
-
         if command != current_state:
             current_state = command
             print(f"[Gas Alarm] 🚨 State changed to: {current_state}")

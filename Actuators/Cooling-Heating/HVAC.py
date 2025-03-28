@@ -6,22 +6,21 @@ from datetime import datetime
 
 BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 DEVICE_ID = "ac_unit_01"
-CONTROL_TOPIC = "building/zone2/ac/control"   # Receives temperature sensor data forwarded by the hub
-STATE_TOPIC = "building/zone2/ac/state"         # Publishes HVAC state updates
+CONTROL_TOPIC = "building/zone2/ac/control"
+STATE_TOPIC = "building/zone2/ac/state"
 
-current_temp = 22.0     # Simulated current room temperature
-Kp = 0.2                # Proportional control constant
-MIN_ADJUSTMENT = 0.1    # Minimal change threshold
-MAX_STEP = 1.0          # Maximum allowed adjustment
+current_temp = 22.0
+Kp = 0.2
+MIN_ADJUSTMENT = 0.1
+MAX_STEP = 1.0
 
 def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%m/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
 
 def on_message(client, userdata, msg):
     global current_temp
     try:
         payload = json.loads(msg.payload.decode())
-        # Use incoming temperature as measured value; target can be optionally provided
         measured_temp = payload.get("value", current_temp)
         target_temp = payload.get("target", 22.0)
         
@@ -35,7 +34,6 @@ def on_message(client, userdata, msg):
             adjustment = max(min(adjustment, MAX_STEP), -MAX_STEP)
             action = "cooling" if adjustment < 0 else "heating"
         
-        # Update room temperature with a bit of random noise
         current_temp += adjustment + random.uniform(-0.05, 0.05)
         current_temp = round(current_temp, 2)
         
