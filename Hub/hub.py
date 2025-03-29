@@ -1,5 +1,6 @@
 import os
 import json
+import time   # Added to get numeric epoch time
 import paho.mqtt.client as mqtt
 import psycopg2
 from datetime import datetime
@@ -7,9 +8,9 @@ from datetime import datetime
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 DB_HOST = os.getenv("DB_HOST", "postgres_db")
 DB_PORT = "5432"
-DB_USER = "postgres"
-DB_PASSWORD = "postgres"
-DB_NAME = "iot_logs"
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_NAME = os.getenv("DB_NAME", "iot_logs")
 
 SENSOR_TOPICS = {
     "building/zone2/temperature/room1": "building/zone2/ac/control",
@@ -28,18 +29,27 @@ TEMP_THRESHOLD = 0.5
 GAS_THRESHOLD = 10
 
 def get_formatted_timestamp():
+    """Return a human-readable timestamp for logging in the payload."""
     return datetime.now().strftime("%d/%b/%y %H:%M:%S")
+
+def get_unix_timestamp():
+    """Return the current time as a Unix epoch (float)."""
+    return time.time()
 
 def log_to_database(device_id, event, payload):
     try:
         conn = psycopg2.connect(
-            host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD, dbname=DB_NAME
+            host=DB_HOST, port=DB_PORT, user=DB_USER,
+            password=DB_PASSWORD, dbname=DB_NAME
         )
         cursor = conn.cursor()
+        # Add human-readable timestamp to payload for reference.
         payload['hub_timestamp'] = get_formatted_timestamp()
+        numeric_epoch = get_unix_timestamp()  # numeric value for the DB timestamp
+
         cursor.execute(
             "INSERT INTO network_logs (device_id, event, payload, timestamp) VALUES (%s, %s, %s, %s)",
-            (device_id, event, json.dumps(payload), get_formatted_timestamp())
+            (device_id, event, json.dumps(payload), numeric_epoch)
         )
         conn.commit()
         cursor.close()
