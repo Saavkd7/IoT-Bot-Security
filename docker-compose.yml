@@ -102,6 +102,20 @@ services:
     networks:
       - default
 
+  ddos_attacker:
+    build:
+      context: ./Attackers/DDoS
+      dockerfile: Dockerfile
+    container_name: ddos_attacker
+    environment:
+      - BROKER_ADDRESS=mqtt_broker
+      - TARGET_TOPIC=building/zone3/gas/detection
+      - ATTACK_RATE=0.01
+    depends_on:
+      - mqtt_broker
+    profiles:
+      - attacks
+
 volumes:
   pgdata:
   mqtt_data:

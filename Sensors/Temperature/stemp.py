@@ -2,15 +2,26 @@ import os
 import json
 import time
 import math
+import random
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
 BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
 SENSOR_TOPIC = "building/zone2/temperature/room1"
 
+# Starting temperature
+current_temp = 22.0
+
+# Define average temps by season
+seasonal_baseline = {
+    "winter": 18.0,
+    "spring": 21.0,
+    "summer": 25.0,
+    "autumn": 20.0
+}
+
 def get_formatted_timestamp():
-    # Returns timestamp as: day/AbbrMonth/yy HH:MM:SS (e.g., "31/Mar/23 15:45:02")
-    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
+    return datetime.now().strftime("%d/%m/%y %H:%M")
 
 def get_season():
     month = datetime.now().month
@@ -23,29 +34,35 @@ def get_season():
     else:
         return "autumn"
 
-def simulate_temperature(current_time):
-    base_temp = 22.0
-    amplitude = 2.0
-    diurnal_variation = amplitude * math.sin(2 * math.pi * (current_time % 86400) / 86400)
-    season = get_season()
-    seasonal_offset = -1.0 if season == "winter" else (1.0 if season == "summer" else 0)
-    return round(base_temp + diurnal_variation + seasonal_offset, 2)
+def get_day_factor():
+    hour = datetime.now().hour
+    # Simulate warmer temps during 10AM–4PM, cooler at night
+    return math.cos((hour - 14) / 6) * -2  # Peak heat around 14:00
+
+def simulate_temperature(current, season):
+    baseline = seasonal_baseline[season]
+    day_variation = get_day_factor()
+    random_noise = random.uniform(-0.2, 0.2)
+    drift = (baseline + day_variation - current) * 0.05
+    return round(current + drift + random_noise, 2)
 
 def main():
+    global current_temp
     client = mqtt.Client()
     client.connect(BROKER_ADDRESS)
-    print("[Temperature Sensor] 🌡️ I am ONLINE and publishing temperature data...")
+    print("[Realistic Temp Sensor] 🌤️ ONLINE! Sending seasonal & daily variation data...")
 
     while True:
-        now = time.time()
-        temp = simulate_temperature(now)
+        season = get_season()
+        current_temp = simulate_temperature(current_temp, season)
         payload = {
             "sensor": "temperature",
-            "value": temp,
+            "value": current_temp,
+            "season": season,
             "timestamp": get_formatted_timestamp()
         }
         client.publish(SENSOR_TOPIC, json.dumps(payload))
-        print(f"[Temperature Sensor] Published: {payload}")
+        print(f"[Sensor] Published realistic temp: {payload}")
         time.sleep(5)
 
 if __name__ == "__main__":
