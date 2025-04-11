@@ -4,7 +4,12 @@ import random
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+
+
+
 DEVICE_ID = "ac_unit_01"
 CONTROL_TOPIC = "building/zone2/ac/control"
 STATE_TOPIC = "building/zone2/ac/state"
@@ -50,7 +55,9 @@ def on_message(client, userdata, msg):
         print(f"[HVAC] Error: {e}")
 
 def main():
+    
     client = mqtt.Client()
+    client.username_pw_set(USERNAME, PASSWORD)
     client.connect(BROKER)
     client.subscribe(CONTROL_TOPIC)
     client.on_message = on_message

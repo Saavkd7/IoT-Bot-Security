@@ -5,7 +5,13 @@ import psycopg2
 from datetime import datetime
 from zoneinfo import ZoneInfo  # Python 3.9+ for timezone handling
 
-BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
+
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+
+
+
 DB_HOST = os.getenv("DB_HOST", "postgres_db")
 DB_PORT = "5432"
 DB_USER = os.getenv("DB_USER", "postgres")
@@ -176,8 +182,9 @@ def main():
     fix_schema()
 
     client = mqtt.Client()
+    client.username_pw_set(USERNAME, PASSWORD)
     client.on_message = on_message
-    client.connect(BROKER_ADDRESS)
+    client.connect(BROKER)
 
     for topic in SENSOR_TOPICS.keys():
         client.subscribe(topic)

@@ -1,0 +1,4 @@
+# Allow iotuser to publish sensor data
+user iotuser
+topic readwrite #
+

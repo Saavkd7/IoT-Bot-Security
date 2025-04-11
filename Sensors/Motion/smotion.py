@@ -6,7 +6,15 @@ from faker import Faker
 from datetime import datetime
 
 faker = Faker()
-BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+
+
+
+
+
+
 TOPIC = "building/zone1/motion/entrance"
 
 def get_formatted_timestamp():
@@ -17,7 +25,8 @@ def generate_motion():
 
 def main():
     client = mqtt.Client()
-    client.connect(BROKER_ADDRESS)
+    client.username_pw_set(USERNAME, PASSWORD)
+    client.connect(BROKER)
     print("[Motion Sensor] 🚶 I am ONLINE!")
 
     while True:

@@ -4,12 +4,13 @@ services:
   mqtt_broker:
     image: eclipse-mosquitto
     container_name: mqtt_broker
+    user: "root"
     ports:
       - "1883:1883"
     volumes:
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - mqtt_data:/mosquitto/data
-      - mqtt_logs:/mosquitto/log
+      - ./mosquitto/config:/mosquitto/config
+      - ./mqtt_data:/mosquitto/data
+      - ./mqtt_logs:/mosquitto/log
     restart: always
 
   postgres_db:
@@ -31,6 +32,8 @@ services:
     container_name: hub
     environment:
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
       - DB_HOST=postgres_db
     depends_on:
       - mqtt_broker
@@ -42,6 +45,8 @@ services:
     container_name: sensor-temp
     environment:
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "stemp.py"]
@@ -51,6 +56,8 @@ services:
     container_name: sensor-motion
     environment:
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "smotion.py"]
@@ -60,6 +67,8 @@ services:
     container_name: sensor-gas
     environment:
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "sgas.py"]
@@ -69,6 +78,8 @@ services:
     container_name: HVAC
     environment:
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "HVAC.py"]
@@ -77,7 +88,10 @@ services:
     build: ./Actuators/Door
     container_name: door
     environment:
+    
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "Adoor.py"]
@@ -86,7 +100,10 @@ services:
     build: ./Actuators/Alarm
     container_name: alarm
     environment:
+    
       - BROKER_ADDRESS=mqtt_broker
+      - MQTT_USERNAME=iotuser
+      - MQTT_PASSWORD=iotpassword
     depends_on:
       - mqtt_broker
     command: ["python", "GasActuator.py"]
@@ -125,6 +142,19 @@ services:
     environment:
       - BROKER_ADDRESS=mqtt_broker
       - ATTACK_INTERVAL=3
+    depends_on:
+      - mqtt_broker
+    profiles:
+      - attacks
+  
+  mqtt_sniffer:
+    build:
+      context: ./Attackers/MQTT-Sniffer
+    container_name: mqtt_sniffer
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: "bridge"
     depends_on:
       - mqtt_broker
     profiles:

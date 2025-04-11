@@ -3,7 +3,11 @@ import json
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+
+
 DEVICE_ID = "door_lock_01"
 CONTROL_TOPIC = "building/zone1/door/lock"
 STATE_TOPIC = "building/zone1/door/state"
@@ -33,7 +37,9 @@ def on_message(client, userdata, msg):
         print(f"[Door] ❌ Error processing message: {e}")
 
 def main():
+
     client = mqtt.Client()
+    client.username_pw_set(USERNAME, PASSWORD)
     client.connect(BROKER)
     client.subscribe(CONTROL_TOPIC)
     client.on_message = on_message

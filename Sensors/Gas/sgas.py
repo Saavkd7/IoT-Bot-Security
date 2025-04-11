@@ -5,8 +5,13 @@ import paho.mqtt.client as mqtt
 from faker import Faker
 from datetime import datetime
 
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+
+
+
 faker = Faker()
-BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt-broker")
 TOPIC = "building/zone3/gas/detection"
 
 def get_formatted_timestamp():
@@ -19,8 +24,10 @@ def generate_gas_level():
     return normal_gas_level
 
 def main():
+
     client = mqtt.Client()
-    client.connect(BROKER_ADDRESS)
+    client.username_pw_set(USERNAME, PASSWORD)
+    client.connect(BROKER)
     print("[Gas Sensor] 🛑 I am ONLINE!")
 
     while True:

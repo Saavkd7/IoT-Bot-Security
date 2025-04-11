@@ -6,7 +6,11 @@ import random
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
+
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "iotuser")
+PASSWORD = os.getenv("MQTT_PASSWORD", "iotpassword")
+
 SENSOR_TOPIC = "building/zone2/temperature/room1"
 
 # Starting temperature
@@ -49,7 +53,8 @@ def simulate_temperature(current, season):
 def main():
     global current_temp
     client = mqtt.Client()
-    client.connect(BROKER_ADDRESS)
+    client.username_pw_set(USERNAME, PASSWORD)
+    client.connect(BROKER)
     print("[Realistic Temp Sensor] 🌤️ ONLINE! Sending seasonal & daily variation data...")
 
     while True:
