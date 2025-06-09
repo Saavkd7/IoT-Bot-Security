@@ -101,7 +101,7 @@ Change values in `.env` files or compose overrides.
 
 This project was built and tested inside **GNS3** using Docker containers. Each node (sensor, hub, bot, etc.) is launched as a template container in a simulated network, making it ideal for demonstrating:
 
-- Dynamic IP assignment
+- Dynamic Configuration with environmetal VARIABLES enable/disable HMAC TLS AUTH
 - MITM attacks via ARP spoofing
 - Topology-based experimentation
 - Real-time network security monitoring
