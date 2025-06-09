@@ -1,4 +1,0 @@
-paho-mqtt
-faker
-psycopg2-binary
-
