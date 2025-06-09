@@ -1,192 +1,156 @@
 import os
 import json
+import ssl
+import time
+import hmac
+import hashlib
 import paho.mqtt.client as mqtt
 import psycopg2
 from datetime import datetime
-from zoneinfo import ZoneInfo  # Python 3.9+ for timezone handling
+from zoneinfo import ZoneInfo
 
-BROKER_ADDRESS = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-DB_HOST = os.getenv("DB_HOST", "postgres_db")
-DB_PORT = "5432"
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
-DB_NAME = os.getenv("DB_NAME", "iot_logs")
+# === CONFIG ===
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "")
+PASSWORD = os.getenv("MQTT_PASSWORD", "")
+ENABLE_TLS = os.getenv("ENABLE_TLS", "false").lower() == "true"
+ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+ENABLE_HMAC = os.getenv("ENABLE_HMAC", "true").lower() == "true"
+PORT = 8883 if ENABLE_TLS else 1883
+HMAC_SECRET = os.getenv("HMAC_SECRET")
 
-SENSOR_TOPICS = {
-    "building/zone2/temperature/room1": "building/zone2/ac/control",
-    "building/zone1/motion/entrance": "building/zone1/door/lock",
-    "building/zone3/gas/detection": "building/zone3/alarm/control"
+DB_PARAMS = {
+    "host": os.getenv("DB_HOST", "postgres_db"),
+    "port": os.getenv("DB_PORT", "5432"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD", "postgres"),
+    "dbname": os.getenv("DB_NAME", "iot_logs")
 }
 
-ACTUATOR_STATE_TOPICS = {
-    "building/zone2/ac/state": "HVAC",
+FILTERED_TOPICS = {
+    "building/filtered/zone2/temperature": "building/zone2/ac/control",
+    "building/filtered/zone1/motion": "building/zone1/door/lock",
+    "building/filtered/zone3/gas": "building/zone3/alarm/control"
+}
+ACTUATOR_FEEDBACK = {
     "building/zone1/door/state": "Door Lock",
+    "building/zone2/ac/state": "HVAC",
     "building/zone3/alarm/state": "Gas Alarm"
 }
 
-sensor_states = {}
 TEMP_THRESHOLD = 0.5
 GAS_THRESHOLD = 10
+HEARTBEAT_TOPIC = "hub/heartbeat"
+HEARTBEAT_INTERVAL = 5
+sensor_states = {}
 
-def fix_schema():
-    """
-    Force the 'timestamp' column to become TIMESTAMPTZ by dropping the old column
-    and re-adding it. This removes old data in that column but prevents type conflicts.
-    """
+# === HMAC UTILS ===
+def compute_hmac(pkt):
+    data = {k: pkt[k] for k in sorted(pkt) if k != "hmac"}
+    return hmac.new(HMAC_SECRET.encode(), json.dumps(data, separators=(",", ":"), sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
+def verify_hmac(pkt):
+    if not ENABLE_HMAC:
+        return True
+    return pkt.get("hmac") and hmac.compare_digest(compute_hmac(pkt), pkt["hmac"])
+
+# === UTILS ===
+def get_timestamp():
+    return datetime.now(ZoneInfo("Europe/Rome")).strftime("%d/%b/%y %H:%M:%S")
+
+def log_to_db(table, device_id, payload):
     try:
-        conn = psycopg2.connect(
-            host=DB_HOST, port=DB_PORT, user=DB_USER,
-            password=DB_PASSWORD, dbname=DB_NAME
-        )
+        conn = psycopg2.connect(**DB_PARAMS)
         cursor = conn.cursor()
-        
-        # 1. Drop the old 'timestamp' column if it exists
-        drop_sql = "ALTER TABLE network_logs DROP COLUMN IF EXISTS timestamp;"
-        cursor.execute(drop_sql)
-
-        # 2. Add a new 'timestamp' column of type TIMESTAMPTZ
-        add_sql = "ALTER TABLE network_logs ADD COLUMN timestamp TIMESTAMPTZ;"
-        cursor.execute(add_sql)
-
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("[Hub] ✅ Successfully dropped and re-added 'timestamp' as TIMESTAMPTZ.")
-    except psycopg2.Error as e:
-        print(f"[Hub] ❌ Could not fix 'timestamp' column: {e}")
-    except Exception as e:
-        print(f"[Hub] ❌ Unexpected error fixing 'timestamp' column: {e}")
-
-def get_local_timestamp():
-    """
-    Return a timezone-aware datetime for Europe/Rome.
-    Ensures timestamps reflect local Italy time (including DST).
-    """
-    return datetime.now(ZoneInfo("Europe/Rome"))
-
-def get_formatted_timestamp():
-    """
-    Return a human-readable local datetime string.
-    Example: "29/Mar/25 13:33:07"
-    """
-    return get_local_timestamp().strftime("%d/%b/%y %H:%M:%S")
-
-def log_to_database(device_id, event, payload):
-    """
-    Insert a row into the network_logs table.
-    The 'timestamp' column is stored as a true TIMESTAMPTZ.
-    """
-    try:
-        conn = psycopg2.connect(
-            host=DB_HOST, port=DB_PORT, user=DB_USER,
-            password=DB_PASSWORD, dbname=DB_NAME
-        )
-        cursor = conn.cursor()
-
-        # Keep a human-readable string in the payload for reference
-        payload["hub_timestamp"] = get_formatted_timestamp()
-        # Insert a proper timezone-aware datetime
-        db_timestamp = get_local_timestamp()
-
+        timestamp = datetime.now(ZoneInfo("Europe/Rome"))
         cursor.execute(
-            """
-            INSERT INTO network_logs (device_id, event, payload, timestamp)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (device_id, event, json.dumps(payload), db_timestamp)
+            f"INSERT INTO {table} (device_id, payload, timestamp) VALUES (%s, %s, %s)",
+            (device_id, json.dumps(payload), timestamp)
         )
         conn.commit()
         cursor.close()
         conn.close()
-    except psycopg2.OperationalError as e:
-        print(f"[Hub] ⚠️ Database is unreachable. Skipping logging. Error: {e}")
     except Exception as e:
-        print(f"[Hub] ❌ Database logging error: {e}")
+        print(f"[Hub]  DB log failed: {e}")
+
+# === MQTT ===
+client = mqtt.Client()
+if ENABLE_AUTH:
+    client.username_pw_set(USERNAME, PASSWORD)
+if ENABLE_TLS:
+    client.tls_set(ca_certs="/mosquitto/certs/ca.crt", cert_reqs=ssl.CERT_REQUIRED)
+
+def on_connect(client, userdata, flags, rc):
+    print("[Hub]  Connected.")
+    for t in FILTERED_TOPICS:
+        client.subscribe(t)
+    for t in ACTUATOR_FEEDBACK:
+        client.subscribe(t)
 
 def on_message(client, userdata, msg):
-    print(f"📥 Received message: {msg.payload.decode()} on topic: {msg.topic}")
     try:
-        data = json.loads(msg.payload.decode())
-        sensor_id = data.get("sensor", "unknown")
+        payload = json.loads(msg.payload.decode())
+        if not verify_hmac(payload):
+            print("[Hub]  Invalid HMAC — rejected.")
+            return
 
-        # Process Motion Sensor
-        if msg.topic == "building/zone1/motion/entrance":
-            if "value" in data:
-                motion_state = data["value"]
-                if msg.topic not in sensor_states or sensor_states[msg.topic] != motion_state:
-                    sensor_states[msg.topic] = motion_state
-                    action = "unlock" if motion_state == "motion_detected" else "lock"
-                    client.publish("building/zone1/door/lock", json.dumps({
-                        "action": action,
-                        "timestamp": get_formatted_timestamp()
-                    }))
-                    print(f"📢 Motion: {motion_state} | Command sent: {action}")
-            else:
-                print("⚠️ Warning: 'value' key missing in motion message")
+        device_id = payload.get("device_id", "unknown")
+        topic = msg.topic
+        payload.pop("hmac", None)
 
-        # Process Gas Sensor
-        elif msg.topic == "building/zone3/gas/detection":
-            if "value" in data:
-                gas_level = data["value"]
-                if msg.topic not in sensor_states or abs(sensor_states[msg.topic] - gas_level) >= GAS_THRESHOLD:
-                    sensor_states[msg.topic] = gas_level
-                    action = "activate" if gas_level > 300 else "deactivate"
-                    client.publish("building/zone3/alarm/control", json.dumps({
-                        "action": action,
-                        "timestamp": get_formatted_timestamp()
-                    }))
-                    print(f"📢 Gas Level: {gas_level} PPM | Command sent: {action}")
-            else:
-                print("⚠️ Warning: 'value' key missing in gas detection message")
+        # === MOTION
+        if topic == "building/filtered/zone1/motion":
+            state = payload.get("value")
+            if sensor_states.get(topic) != state:
+                sensor_states[topic] = state
+                action = "unlock" if state == "motion_detected" else "lock"
+                cmd = {"action": action, "device_id": "hub", "timestamp": get_timestamp()}
+                cmd["hmac"] = compute_hmac(cmd)
+                client.publish("building/zone1/door/lock", json.dumps(cmd))
+                print(f"[Hub]  Door command: {action.upper()}")
 
-        # Process Temperature Sensor
-        elif msg.topic == "building/zone2/temperature/room1":
-            if "value" in data:
-                temp = data["value"]
-                if msg.topic not in sensor_states or abs(sensor_states[msg.topic] - temp) >= TEMP_THRESHOLD:
-                    sensor_states[msg.topic] = temp
-                    payload = {
-                        "sensor": "temperature",
-                        "value": temp,
-                        "timestamp": get_formatted_timestamp()
-                    }
-                    client.publish("building/zone2/ac/control", json.dumps(payload))
-                    print(f"📢 Temperature reading: {temp}°C → forwarded to HVAC for adjustment.")
-            else:
-                print("⚠️ Warning: 'value' key missing in temperature message")
+        # === GAS
+        elif topic == "building/filtered/zone3/gas":
+            level = payload.get("value")
+            prev = sensor_states.get(topic)
+            if prev is None or abs(prev - level) >= GAS_THRESHOLD:
+                sensor_states[topic] = level
+                state = "danger" if level >= 1000 else "warning" if level >= 300 else "normal"
+                cmd = {"state": state, "value": level, "device_id": "hub", "timestamp": get_timestamp()}
+                cmd["hmac"] = compute_hmac(cmd)
+                client.publish("building/zone3/alarm/control", json.dumps(cmd))
+                print(f"[Hub]  Gas state: {state.upper()}")
 
-        # Process Actuator State
-        elif msg.topic in ACTUATOR_STATE_TOPICS:
-            actuator_name = ACTUATOR_STATE_TOPICS[msg.topic]
-            if "state" in data:
-                print(f"✅ {actuator_name} confirmed state: {data['state']}")
-                log_to_database(actuator_name, "actuator_data", data)
-            else:
-                print(f"⚠️ Warning: 'state' key missing in actuator state message")
+        # === TEMPERATURE
+        elif topic == "building/filtered/zone2/temperature":
+            temp = payload.get("value")
+            prev = sensor_states.get(topic)
+            if prev is None or abs(prev - temp) >= TEMP_THRESHOLD:
+                sensor_states[topic] = temp
+                cmd = {"sensor": "temperature", "value": temp, "device_id": "hub", "timestamp": get_timestamp()}
+                cmd["hmac"] = compute_hmac(cmd)
+                client.publish("building/zone2/ac/control", json.dumps(cmd))
+                print(f"[Hub]  Temp control: {temp}°C")
 
-        # Log sensor event
-        if "sensor" in data:
-            log_to_database(sensor_id, "sensor_data", data)
+        # === FEEDBACK or SENSOR LOGGING
+        if topic in ACTUATOR_FEEDBACK:
+            print(f"[Hub]  {ACTUATOR_FEEDBACK[topic]} reports: {payload.get('state')}")
+            log_to_db("actuator_actions", device_id, payload)
+        else:
+            log_to_db("sensor_data", device_id, payload)
 
-    except json.JSONDecodeError:
-        print("❌ Invalid JSON format received.")
+    except Exception as e:
+        print(f"[Hub]  {e}")
 
-def main():
-    # Force the DB schema to drop the old 'timestamp' column and re-add it as TIMESTAMPTZ
-    fix_schema()
+client.on_connect = on_connect
+client.on_message = on_message
+client.connect(BROKER, port=PORT)
+client.loop_start()
 
-    client = mqtt.Client()
-    client.on_message = on_message
-    client.connect(BROKER_ADDRESS)
-
-    for topic in SENSOR_TOPICS.keys():
-        client.subscribe(topic)
-    for topic in ACTUATOR_STATE_TOPICS.keys():
-        client.subscribe(topic)
-
-    print("[Hub] 🌐 I am ONLINE! Monitoring sensors and actuators...")
-    client.loop_forever()
-
-if __name__ == "__main__":
-    main()
+# === HEARTBEAT LOOP ===
+while True:
+    hb = {"hub_status": "alive", "timestamp": get_timestamp(), "device_id": "hub"}
+    hb["hmac"] = compute_hmac(hb)
+    client.publish(HEARTBEAT_TOPIC, json.dumps(hb))
+    time.sleep(HEARTBEAT_INTERVAL)
 

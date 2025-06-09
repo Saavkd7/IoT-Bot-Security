@@ -1,50 +1,98 @@
+# ACTUATOR: Adoor.py (Smart Door Lock Actuator)
 import os
 import json
+import ssl
+import time
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-DEVICE_ID = "door_lock_01"
+# ========== CONFIG ==========
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "")
+PASSWORD = os.getenv("MQTT_PASSWORD", "")
+ENABLE_TLS = os.getenv("ENABLE_TLS", "false").lower() == "true"
+ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+PORT = 8883 if ENABLE_TLS else 1883
+
 CONTROL_TOPIC = "building/zone1/door/lock"
 STATE_TOPIC = "building/zone1/door/state"
+HEARTBEAT_TOPIC = "hub/heartbeat"
 
-current_state = "locked"
+last_heartbeat = time.time()
+door_state = "locked"
 
-def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
+# ========== UTILS ==========
+def get_timestamp():
+    return datetime.now().strftime("%d/%m/%y %H:%M")
+
+def publish_state(client):
+    payload = {
+        "actuator": "Door Lock",
+        "state": door_state,
+        "timestamp": get_timestamp()
+    }
+    client.publish(STATE_TOPIC, json.dumps(payload))
+    print(f"[DOOR] 🔐 State: {door_state.upper()}")
+
+# ========== MQTT CALLBACKS ==========
+def on_connect(client, userdata, flags, rc):
+    print("[DOOR] ✅ Connected to MQTT broker.")
+    client.subscribe(CONTROL_TOPIC)
+    client.subscribe(HEARTBEAT_TOPIC)
+
+def on_disconnect(client, userdata, rc):
+    print("[DOOR] 🔌 Disconnected from broker.")
 
 def on_message(client, userdata, msg):
-    global current_state
+    global last_heartbeat, door_state
+    if msg.topic == HEARTBEAT_TOPIC:
+        last_heartbeat = time.time()
+
+    elif msg.topic == CONTROL_TOPIC:
+        try:
+            data = json.loads(msg.payload.decode())
+            action = data.get("action")
+
+            if action == "unlock" and door_state != "unlocked":
+                door_state = "unlocked"
+                print("[DOOR] 🚪 Motion detected → UNLOCKING door.")
+                publish_state(client)
+
+            elif action == "lock" and door_state != "locked":
+                door_state = "locked"
+                print("[DOOR] 🛑 No motion → LOCKING door.")
+                publish_state(client)
+
+        except Exception as e:
+            print(f"[DOOR] ❌ Error processing control message: {e}")
+
+# ========== MQTT SETUP ==========
+client = mqtt.Client()
+if ENABLE_AUTH:
+    client.username_pw_set(USERNAME, PASSWORD)
+if ENABLE_TLS:
+    client.tls_set(ca_certs="/mosquitto/certs/ca.crt", cert_reqs=ssl.CERT_REQUIRED)
+
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+client.on_message = on_message
+client.reconnect_delay_set(1, 30)
+
+# ========== CONNECT LOOP ==========
+while True:
     try:
-        payload = json.loads(msg.payload.decode())
-        command = payload.get("action")
-        if command not in ["lock", "unlock"]:
-            print(f"[Door] ⚠️ Invalid command: {command}")
-            return
-        if command != current_state:
-            current_state = command
-            print(f"[Door] 🚪 State changed to: {current_state}")
-            client.publish(STATE_TOPIC, json.dumps({
-                "state": current_state,
-                "device_id": DEVICE_ID,
-                "timestamp": get_formatted_timestamp()
-            }))
+        client.connect(BROKER, port=PORT)
+        break
     except Exception as e:
-        print(f"[Door] ❌ Error processing message: {e}")
+        print(f"[DOOR] 🔁 Retry connection: {e}")
+        time.sleep(3)
 
-def main():
-    client = mqtt.Client()
-    client.connect(BROKER)
-    client.subscribe(CONTROL_TOPIC)
-    client.on_message = on_message
-    print(f"[Door] 🔐 ONLINE at {CONTROL_TOPIC}")
-    client.publish(STATE_TOPIC, json.dumps({
-        "state": current_state,
-        "device_id": DEVICE_ID,
-        "timestamp": get_formatted_timestamp()
-    }))
-    client.loop_forever()
+client.loop_start()
+print("[DOOR] 🔄 Awaiting motion control signals...")
 
-if __name__ == "__main__":
-    main()
+# ========== MAIN LOOP ==========
+while True:
+    if time.time() - last_heartbeat > 15:
+        print("[DOOR] ⏸ Paused (hub heartbeat missing)")
+    time.sleep(5)
 

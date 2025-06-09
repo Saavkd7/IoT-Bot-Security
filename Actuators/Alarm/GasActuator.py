@@ -1,50 +1,111 @@
+
+# ACTUATOR: GasActuator.py (Final with Cooldown & Hysteresis Protection)
 import os
 import json
+import ssl
+import time
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-DEVICE_ID = "gas_alarm_01"
+# ========== CONFIG ==========
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "")
+PASSWORD = os.getenv("MQTT_PASSWORD", "")
+ENABLE_TLS = os.getenv("ENABLE_TLS", "false").lower() == "true"
+ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+PORT = 8883 if ENABLE_TLS else 1883
+
 CONTROL_TOPIC = "building/zone3/alarm/control"
 STATE_TOPIC = "building/zone3/alarm/state"
+HEARTBEAT_TOPIC = "hub/heartbeat"
 
-current_state = "deactivated"
+last_heartbeat = time.time()
+alarm_state = "normal"
+last_change_time = 0
+COOLDOWN_SECONDS = 30  # Minimum duration between state changes
 
-def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
+# ========== UTILS ==========
+def get_timestamp():
+    return datetime.now().strftime("%d/%m/%y %H:%M")
+
+def simulate_audio_feedback(state):
+    if state == "warning":
+        print("[AUDIO] 📢 Gas detected! Open windows and stay alert.")
+    elif state == "danger":
+        print("[SIREN] 🚨 DANGER! Gas level critical — evacuate immediately!")
+    elif state == "normal":
+        print("[GAS ALARM] ✅ Air quality normal.")
+
+def publish_state(client):
+    payload = {
+        "actuator": "Gas Alarm",
+        "state": alarm_state,
+        "timestamp": get_timestamp()
+    }
+    client.publish(STATE_TOPIC, json.dumps(payload))
+    simulate_audio_feedback(alarm_state)
+
+# ========== MQTT CALLBACKS ==========
+def on_connect(client, userdata, flags, rc):
+    print("[GAS ALARM] ✅ Connected to MQTT broker.")
+    client.subscribe(CONTROL_TOPIC)
+    client.subscribe(HEARTBEAT_TOPIC)
+
+def on_disconnect(client, userdata, rc):
+    print("[GAS ALARM] 🔌 Disconnected.")
 
 def on_message(client, userdata, msg):
-    global current_state
+    global last_heartbeat, alarm_state, last_change_time
+
+    if msg.topic == HEARTBEAT_TOPIC:
+        last_heartbeat = time.time()
+
+    elif msg.topic == CONTROL_TOPIC:
+        try:
+            data = json.loads(msg.payload.decode())
+            new_state = data.get("state", "normal").lower()
+
+            if new_state not in ["normal", "warning", "danger"]:
+                print(f"[GAS ALARM] ⚠️ Unknown state received: {new_state}")
+                return
+
+            now = time.time()
+            enough_time_passed = now - last_change_time >= COOLDOWN_SECONDS
+
+            if new_state != alarm_state and enough_time_passed:
+                alarm_state = new_state
+                last_change_time = now
+                print(f"[GAS ALARM] 🔔 State → {alarm_state.upper()}")
+                publish_state(client)
+
+        except Exception as e:
+            print(f"[GAS ALARM] ❌ Error processing control message: {e}")
+
+# ========== MQTT SETUP ==========
+client = mqtt.Client()
+if ENABLE_AUTH:
+    client.username_pw_set(USERNAME, PASSWORD)
+if ENABLE_TLS:
+    client.tls_set("/mosquitto/certs/ca.crt", cert_reqs=ssl.CERT_REQUIRED)
+
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+client.on_message = on_message
+client.reconnect_delay_set(1, 30)
+
+# ========== CONNECT & MAIN LOOP ==========
+while True:
     try:
-        payload = json.loads(msg.payload.decode())
-        command = payload.get("action")
-        if command not in ["activate", "deactivate"]:
-            print(f"[Gas Alarm] ⚠️ Invalid command: {command}")
-            return
-        if command != current_state:
-            current_state = command
-            print(f"[Gas Alarm] 🚨 State changed to: {current_state}")
-            client.publish(STATE_TOPIC, json.dumps({
-                "state": current_state,
-                "device_id": DEVICE_ID,
-                "timestamp": get_formatted_timestamp()
-            }))
+        client.connect(BROKER, port=PORT)
+        break
     except Exception as e:
-        print(f"[Gas Alarm] ❌ Error processing message: {e}")
+        print(f"[GAS ALARM] 🔁 Retrying: {e}")
+        time.sleep(3)
 
-def main():
-    client = mqtt.Client()
-    client.connect(BROKER)
-    client.subscribe(CONTROL_TOPIC)
-    client.on_message = on_message
-    print(f"[Gas Alarm] 🛑 ONLINE at {CONTROL_TOPIC}")
-    client.publish(STATE_TOPIC, json.dumps({
-        "state": current_state,
-        "device_id": DEVICE_ID,
-        "timestamp": get_formatted_timestamp()
-    }))
-    client.loop_forever()
+client.loop_start()
+print("[GAS ALARM] 🔄 Listening for gas alarm states...")
 
-if __name__ == "__main__":
-    main()
-
+while True:
+    if time.time() - last_heartbeat > 15:
+        print("[GAS ALARM] ⏸ Paused (hub heartbeat missing)")
+    time.sleep(5)

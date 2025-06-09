@@ -1,0 +1,20 @@
+# Actuator can control and report its state
+user actuator_user
+topic readwrite building/zone2/ac/#
+topic readwrite building/zone1/door/#
+topic readwrite building/zone3/alarm/#
+topic readwrite hub/heartbeat/#
+# Sensor can only publish to its detection topics
+user sensor_user
+topic write building/zone2/temperature/#
+topic write building/zone1/motion/#
+topic write building/zone3/gas/#
+topic readwrite hub/heartbeat/#
+# IoTBot  can read everything and publish control commands
+user iotbot_user
+topic readwrite #
+topic readwrite hub/heartbeat/#
+#  Hub can read everything and publish control commands
+user hub_user
+topic readwrite building/#
+topic readwrite hub/heartbeat/#

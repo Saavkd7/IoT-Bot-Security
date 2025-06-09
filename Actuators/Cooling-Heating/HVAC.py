@@ -1,62 +1,104 @@
+
+# ACTUATOR: HVAC.py (Realistic HVAC with Fixed Desired Temp and Sensor Feedback)
 import os
 import json
-import random
+import ssl
+import time
 import paho.mqtt.client as mqtt
 from datetime import datetime
 
-BROKER = os.getenv("BROKER_ADDRESS", "mqtt_broker")
-DEVICE_ID = "ac_unit_01"
+# ========== CONFIG ==========
+BROKER = os.getenv("BROKER_ADDRESS", "mqtt-broker")
+USERNAME = os.getenv("MQTT_USERNAME", "")
+PASSWORD = os.getenv("MQTT_PASSWORD", "")
+ENABLE_TLS = os.getenv("ENABLE_TLS", "false").lower() == "true"
+ENABLE_AUTH = os.getenv("ENABLE_AUTH", "false").lower() == "true"
+PORT = 8883 if ENABLE_TLS else 1883
+
 CONTROL_TOPIC = "building/zone2/ac/control"
 STATE_TOPIC = "building/zone2/ac/state"
+HEARTBEAT_TOPIC = "hub/heartbeat"
 
-current_temp = 22.0
-Kp = 0.2
-MIN_ADJUSTMENT = 0.1
-MAX_STEP = 1.0
 
-def get_formatted_timestamp():
-    return datetime.now().strftime("%d/%b/%y %H:%M:%S")
+last_heartbeat = time.time()
+current_temp = 22.0  
+current_state = "idle"
+
+# ========== UTILS ==========
+def get_timestamp():
+    return datetime.now().strftime("%d/%m/%y %H:%M")
+
+def publish_state(client):
+    payload = {
+        "actuator": "HVAC",
+        "state": current_state,
+        "provided_temperature": round(current_temp, 2),
+        "timestamp": get_timestamp()
+    }
+    client.publish(STATE_TOPIC, json.dumps(payload))
+    print(f"[HVAC] ⚙️ State: {current_state.upper()} | Room: {round(current_temp, 2)}°C")
+
+# ========== MQTT CALLBACKS ==========
+def on_connect(client, userdata, flags, rc):
+    print("[HVAC] ✅ Connected to MQTT broker.")
+    client.subscribe(CONTROL_TOPIC)
+    client.subscribe(HEARTBEAT_TOPIC)
+
+def on_disconnect(client, userdata, rc):
+    print("[HVAC] 🔌 Disconnected from broker.")
 
 def on_message(client, userdata, msg):
-    global current_temp
+    global last_heartbeat, current_temp, current_state
+    if msg.topic == HEARTBEAT_TOPIC:
+        last_heartbeat = time.time()
+    elif msg.topic == CONTROL_TOPIC:
+        try:
+            data = json.loads(msg.payload.decode())
+            new_temp = data.get("value")
+            if new_temp is not None:
+                current_temp = new_temp  # new room temp from sensor
+                print(f"[HVAC] 📡 Sensor reports: {current_temp}°C")
+
+                new_state = current_state
+                if current_temp < 20.0:
+                    new_state = "heating"
+                elif current_temp > 24.0:
+                    new_state = "cooling"
+                else:
+                    new_state = "idle"
+
+                if new_state != current_state:
+                    current_state = new_state
+                    publish_state(client)
+        except Exception as e:
+            print(f"[HVAC] ❌ Error: {e}")
+
+# ========== MQTT SETUP ==========
+client = mqtt.Client()
+if ENABLE_AUTH:
+    client.username_pw_set(USERNAME, PASSWORD)
+if ENABLE_TLS:
+    client.tls_set(ca_certs="/mosquitto/certs/ca.crt", cert_reqs=ssl.CERT_REQUIRED)
+
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+client.on_message = on_message
+client.reconnect_delay_set(1, 30)
+
+# ========== CONNECT LOOP ==========
+while True:
     try:
-        payload = json.loads(msg.payload.decode())
-        measured_temp = payload.get("value", current_temp)
-        target_temp = payload.get("target", 22.0)
-        
-        error = current_temp - target_temp
-        
-        if abs(error) < MIN_ADJUSTMENT:
-            adjustment = 0.0
-            action = "stable"
-        else:
-            adjustment = -Kp * error
-            adjustment = max(min(adjustment, MAX_STEP), -MAX_STEP)
-            action = "cooling" if adjustment < 0 else "heating"
-        
-        current_temp += adjustment + random.uniform(-0.05, 0.05)
-        current_temp = round(current_temp, 2)
-        
-        state_payload = {
-            "device_id": DEVICE_ID,
-            "action": f"{action}: {abs(round(adjustment, 2))}°C",
-            "current_temp": current_temp,
-            "target_temp": target_temp,
-            "timestamp": get_formatted_timestamp()
-        }
-        client.publish(STATE_TOPIC, json.dumps(state_payload))
-        print(f"[HVAC] {action} applied. New Temp: {current_temp}°C (Target: {target_temp}°C, Error: {error:.2f}°C)")
+        client.connect(BROKER, port=PORT)
+        break
     except Exception as e:
-        print(f"[HVAC] Error: {e}")
+        print(f"[HVAC] 🔁 Retry connection: {e}")
+        time.sleep(3)
 
-def main():
-    client = mqtt.Client()
-    client.connect(BROKER)
-    client.subscribe(CONTROL_TOPIC)
-    client.on_message = on_message
-    print("[HVAC] Smart HVAC system is ONLINE. Listening for control commands...")
-    client.loop_forever()
+client.loop_start()
+print("[HVAC] 🔄 Waiting for room temperature readings...")
 
-if __name__ == "__main__":
-    main()
-
+# ========== MAIN LOOP ==========
+while True:
+    if time.time() - last_heartbeat > 15:
+        print("[HVAC] ⏸ Paused (hub heartbeat missing)")
+    time.sleep(5)

