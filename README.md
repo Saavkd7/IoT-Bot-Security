@@ -26,7 +26,7 @@ These modes can be toggled using configuration files and environment variables.
 
 ![GNS3 Topology Example](gns3_topology.png)
 
-This project was deployed entirely within GNS3 using Docker containers as nodes, **without using Docker Compose**. Each device (sensor, hub, IoTBot, attacker) was manually instantiated and connected to a virtual switch.
+This project was deployed entirely within GNS3 using Docker containers as nodes. Each device (sensor, hub, IoTBot, attacker) was manually instantiated and connected to a virtual switch.
 
 ```
 [ Sensor Nodes ] ---> MQTT Broker ---> [ Hub ] ---> [ Actuators ]
