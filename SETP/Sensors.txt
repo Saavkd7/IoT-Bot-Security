@@ -1,0 +1,28 @@
+SENSOR TEMPERATURE
+----------------------------------------------------------
+BROKER_ADDRESS=192.168.10.1 
+MQTT_USERNAME=sensor_user 
+MQTT_PASSWORD=sensorpass 
+HMAC_SECRET=123iot45
+ENABLE_AUTH=false 
+ENABLE_TLS=false
+ENABLE_HMAC=false
+-----------------------------------------------------------
+SENSOR MOTION
+-----------------------------------------------------------
+BROKER_ADDRESS=192.168.10.1 
+MQTT_USERNAME=sensor_user 
+MQTT_PASSWORD=sensorpass 
+HMAC_SECRET=123iot45
+ENABLE_AUTH=false
+ENABLE_TLS=false
+ENABLE_HMAC=false
+-----------------------------------------------------------
+SENSOR GAS
+----------------------------------------------------------
+BROKER_ADDRESS=192.168.10.1 
+MQTT_USERNAME=sensor_user 
+MQTT_PASSWORD=sensorpass
+ENABLE_AUTH=false 
+ENABLE_TLS=false
+ENABLE_HMAC=false

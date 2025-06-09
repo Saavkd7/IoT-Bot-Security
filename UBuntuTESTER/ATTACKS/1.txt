@@ -1,0 +1,3 @@
+1. WHich one is the broker 
+nmap -p 1883 --open 192.168.10.0/24
+
